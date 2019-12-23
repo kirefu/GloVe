@@ -1,0 +1,77 @@
+#!/bin/bash
+
+PARENT_DIR="/fs/meili0/faheem/gpanlp"
+INTER_DIR=PARENT_DIR+"/GloVe/intermediate_files"
+CORPUS=PARENT_DIR+"/data/lemma_corpus/final_lemma_corpus"
+VOCAB_FILE=INTER_DIR + "/glove_vocab.txt"
+BUILDDIR=PARENT_DIR+"/GloVe/build"
+VERBOSE=2
+MEMORY=50
+VOCAB_MIN_COUNT=10
+NUM_THREADS=8
+X_MAX=100
+MAX_ITER=30 # epochs
+BINARY=2
+window_sizes= [5, 8, 13]
+vector_sizes= [64, 128, 256]
+MODEL_DIR=PARENT_DIR+"/models_glove"
+EVAL_DIR=MODEL_DIR+'/eval'
+EVAL_PY=PARENT_DIR+'/GloVe/eval/python/evaluate_wa.py'
+OUTPUT_FILES = []
+
+for w in window_sizes:
+    for d in vector_sizes:
+        OUTPUT_FILES.append("{}/glove.w{}.d{}.eval".format(EVAL_DIR, w, d))
+
+
+rule all:
+    input: expand(OUTPUT_FILES)
+
+
+rule vocab_count:
+    input: CORPUS
+    output: VOCAB_FILE
+    shell:
+        'echo "Hostname is $HOSTNAME"; '
+        '{BUILDDIR}/vocab_count -min-count {VOCAB_MIN_COUNT} -verbose {VERBOSE} < {input} > {output}; '
+
+rule cooccur:
+    input: VOCAB_FILE
+    output: INTER_DIR+'/cooccurrence.{window}.bin'
+    shell:
+          '{BUILDDIR}/cooccur -memory {MEMORY} -vocab-file {input} -verbose {VERBOSE} -window-size {wildcards.window} < {CORPUS} > {output}; '
+
+rule shuffle:
+    input: INTER_DIR+'/cooccurrence.{window}.bin'
+    output: INTER_DIR+'/shuf.cooccurrence.{window}.bin'
+    shell:
+        '{BUILDDIR}/shuffle -memory {MEMORY} -verbose {VERBOSE} -temp-file temp_shuffle{wildcards.window} < {input} > {output}; '
+
+rule glove:
+    input: INTER_DIR+'/shuf.cooccurrence.{window}.bin', VOCAB_FILE
+    output: MODEL_DIR+'/glove.w{window}.d{vector}.model'
+    shell:
+        'mkdir -p {MODEL_DIR} ;'
+        '{BUILDDIR}/glove -save-file {output} -threads {NUM_THREADS} -input-file {input[0]} -x-max {X_MAX} -iter {MAX_ITER} -vector-size {wildcards.vector} -binary {BINARY} -vocab-file {input[1]} -verbose {VERBOSE} && echo "{output}" > {output}; '
+
+rule eval:
+    input: MODEL_DIR+'/glove.w{window}.d{vector}.model', VOCAB_FILE
+    output: EVAL_DIR+'/glove.w{window}.d{vector}.eval'
+    shell:
+        'python3 {EVAL_PY} --vocab_file {input[1]} --vectors_file {input[0]}.txt > {output}; '
+
+
+#
+#
+#
+#
+# if [ "{CORPUS}" = 'text8' ]; then
+#    if [ "$1" = 'matlab' ]; then
+#        matlab -nodisplay -nodesktop -nojvm -nosplash < ./eval/matlab/read_and_evaluate.m 1>&2
+#    elif [ "$1" = 'octave' ]; then
+#        octave < ./eval/octave/read_and_evaluate_octave.m 1>&2
+#    else
+#        echo "$ python eval/python/evaluate.py"
+#        python eval/python/evaluate.py
+#    fi
+# fi

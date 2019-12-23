@@ -1,3 +1,5 @@
+intermediate_files/*
+snakemake/.snakemake/
 # Object files
 *.o
 *.ko
